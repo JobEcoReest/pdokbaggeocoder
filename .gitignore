@@ -1,8 +1,11 @@
 *.pyc
+__pycache__/
 *.egg-info
 .ipynb_checkpoints
 .cache
 .DS_Store
 venv
-*.pyc
 .idea
+.claude/
+build/
+dist/
