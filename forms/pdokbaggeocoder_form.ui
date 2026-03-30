@@ -13,7 +13,7 @@
     <x>0</x>
     <y>0</y>
     <width>635</width>
-    <height>378</height>
+    <height>430</height>
    </rect>
   </property>
   <property name="mouseTracking">
@@ -23,7 +23,7 @@
    <string>PDOK BAG Geocoder</string>
   </property>
   <layout class="QGridLayout" name="gridLayout">
-   <item row="13" column="0" colspan="3">
+   <item row="15" column="0" colspan="3">
     <widget class="QLineEdit" name="shapefilename">
      <property name="text">
       <string/>
@@ -56,7 +56,7 @@
      </property>
     </widget>
    </item>
-   <item row="9" column="0">
+   <item row="11" column="0">
     <widget class="QLabel" name="city_label">
      <property name="font">
       <font>
@@ -69,10 +69,10 @@
      </property>
     </widget>
    </item>
-   <item row="10" column="2" colspan="2">
+   <item row="12" column="2" colspan="2">
     <widget class="QComboBox" name="city"/>
    </item>
-   <item row="10" column="1">
+   <item row="12" column="1">
     <widget class="QRadioButton" name="radio_list">
      <property name="font">
       <font>
@@ -93,7 +93,7 @@
    <item row="6" column="2" colspan="2">
     <widget class="QComboBox" name="address"/>
    </item>
-   <item row="10" column="0">
+   <item row="12" column="0">
     <widget class="QRadioButton" name="radio_column">
      <property name="font">
       <font>
@@ -135,7 +135,7 @@
       </font>
      </property>
      <property name="text">
-      <string>huisnummertoevoegingen worden genegeerd</string>
+      <string>straatnaam of postcode</string>
      </property>
     </widget>
    </item>
@@ -159,7 +159,7 @@
      </property>
     </widget>
    </item>
-   <item row="13" column="3">
+   <item row="15" column="3">
     <widget class="QPushButton" name="browse_shapefile">
      <property name="text">
       <string>Save as...</string>
@@ -180,7 +180,37 @@
      </property>
     </widget>
    </item>
-   <item row="14" column="2" colspan="2">
+   <item row="9" column="0">
+    <widget class="QLabel" name="addition_label">
+     <property name="font">
+      <font>
+       <weight>75</weight>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>Huisnummer toevoeging</string>
+     </property>
+    </widget>
+   </item>
+   <item row="10" column="0">
+    <widget class="QLabel" name="addition_sublabel">
+     <property name="font">
+      <font>
+       <pointsize>10</pointsize>
+       <weight>50</weight>
+       <bold>false</bold>
+      </font>
+     </property>
+     <property name="text">
+      <string>optioneel</string>
+     </property>
+    </widget>
+   </item>
+   <item row="10" column="2" colspan="2">
+    <widget class="QComboBox" name="addition"/>
+   </item>
+   <item row="16" column="2" colspan="2">
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
@@ -197,7 +227,7 @@
      </property>
     </widget>
    </item>
-   <item row="12" column="0" colspan="4">
+   <item row="14" column="0" colspan="4">
     <widget class="Line" name="line_2">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

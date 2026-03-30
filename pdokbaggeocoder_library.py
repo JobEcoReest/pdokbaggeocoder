@@ -148,7 +148,7 @@ def pdokbaggeocoder_status_message(qgis, message):
 # --------------------------------------------------------------
 
 
-def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, current_city, start_time):
+def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, current_city, start_time, housenumber_key="", addition_key=""):
     if (not csvname) or (len(csvname) <= 0):
         return "No CSV address file given"
     # Read the CSV file header
@@ -177,10 +177,16 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
     except:
         return "Fout bij het lezen van " + str(csvname) + ": " + str(sys.exc_info()[1])
 
+    housenumber_idx = -1
+    addition_idx = -1
     for x in range(0, len(header)):
         for y in range(0, len(keys)):
             if header[x] == keys[y]:
                 indices.append(x)
+        if housenumber_key and header[x] == housenumber_key:
+            housenumber_idx = x
+        if addition_key and header[x] == addition_key:
+            addition_idx = x
 
         fieldname = header[x].strip()
         fields.append(QgsField(fieldname[0:9], QVariant.String))
@@ -240,21 +246,62 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                 response = urllib.request.urlopen(url).read()
                 results = json.loads(response)
                 if len(results["response"]["docs"]) > 0:
+                    # Get housenumber and addition values from CSV row for validation
+                    csv_huisnummer = ""
+                    csv_addition = ""
+                    if housenumber_idx >= 0 and housenumber_idx < len(row):
+                        csv_huisnummer = row[housenumber_idx].strip()
+                    if addition_idx >= 0 and addition_idx < len(row):
+                        csv_addition = row[addition_idx].strip()
+
+                    # Find best matching result with priority:
+                    # 1. Exact match (huisnummer + toevoeging)
+                    # 2. Huisnummer match without toevoeging
+                    # 3. First result (highest score)
+                    best_result = None
+                    huisnummer_match = None
                     for result in results["response"]["docs"]:
-                        if result["score"] == results["response"]["maxScore"]:
-                            xy = re.findall(r'\d+\.*\d*', result["centroide_rd"])
-                            x = float(xy[0])
-                            y = float(xy[1])
-                            attributes = []
-                            for z in range(0, len(header)):
-                                if z < len(row):
-                                    attributes.append(row[z].strip())
-                            newfeature = QgsFeature()
-                            newfeature.setAttributes(attributes)
-                            geometry = QgsGeometry.fromPointXY(QgsPointXY(x, y))
-                            newfeature.setGeometry(geometry)
-                            outfile.addFeature(newfeature)
-                            break
+                        if not best_result:
+                            best_result = result
+                        if csv_huisnummer:
+                            res_huisnummer = str(result.get("huisnummer", ""))
+                            res_huisletter = result.get("huisletter", "")
+                            res_toevoeging = result.get("huisnummertoevoeging", "")
+                            if res_huisnummer == csv_huisnummer:
+                                if csv_addition:
+                                    # Exact match with addition
+                                    if csv_addition.lower() == str(res_huisletter).lower() or csv_addition.lower() == str(res_toevoeging).lower():
+                                        best_result = result
+                                        break
+                                    # Remember huisnummer-only match as fallback
+                                    if not huisnummer_match and not res_huisletter and not res_toevoeging:
+                                        huisnummer_match = result
+                                else:
+                                    # No addition specified: prefer result without letter/toevoeging
+                                    if not res_huisletter and not res_toevoeging:
+                                        best_result = result
+                                        break
+                    # Use huisnummer-only fallback if no exact match was found
+                    if huisnummer_match and best_result != huisnummer_match:
+                        best_result = huisnummer_match
+
+                    if best_result:
+                        xy = re.findall(r'\d+\.*\d*', best_result["centroide_rd"])
+                        x = float(xy[0])
+                        y = float(xy[1])
+                        attributes = []
+                        for z in range(0, len(header)):
+                            if z < len(row):
+                                attributes.append(row[z].strip())
+                        newfeature = QgsFeature()
+                        newfeature.setAttributes(attributes)
+                        geometry = QgsGeometry.fromPointXY(QgsPointXY(x, y))
+                        newfeature.setGeometry(geometry)
+                        outfile.addFeature(newfeature)
+                    else:
+                        notfoundcount += 1
+                        notwriter.writerow(row)
+                        notfound_list.append(url)
                 else:
                     notfoundcount += 1
                     notwriter.writerow(row)

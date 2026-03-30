@@ -115,7 +115,7 @@ class pdokbaggeocoder_dialog(QDialog, Ui_pdokbaggeocoder_form):
 
             del reader
 
-            combolist = [self.address, self.housenumber, self.city]
+            combolist = [self.address, self.housenumber, self.addition, self.city]
             for box in combolist:
                 box.clear()
                 box.addItem("----")
@@ -145,6 +145,14 @@ class pdokbaggeocoder_dialog(QDialog, Ui_pdokbaggeocoder_form):
                     self.housenumber.setCurrentIndex(index + 1)
                 if field.lower() == "nr":
                     self.housenumber.setCurrentIndex(index + 1)
+                if field.lower().find("toevoeging") >= 0:
+                    self.addition.setCurrentIndex(index + 1)
+                if field.lower().find("addition") >= 0:
+                    self.addition.setCurrentIndex(index + 1)
+                if field.lower() == "huisltr":
+                    self.addition.setCurrentIndex(index + 1)
+                if field.lower().find("huisletter") >= 0:
+                    self.addition.setCurrentIndex(index + 1)
                 if field.lower().find("city") >= 0:
                     self.radio_column.setChecked(True)
                     self.city.setCurrentIndex(index + 1)
@@ -249,16 +257,22 @@ class pdokbaggeocoder_dialog(QDialog, Ui_pdokbaggeocoder_form):
             if self.radio_list.isChecked():
                 # separate field for single cityname
                 current_city = str(self.city.currentText())
-                fields = [str(self.address.currentText()).strip(), str(self.housenumber.currentText()).strip()]
+                fields = [str(self.address.currentText()).strip(), str(self.housenumber.currentText()).strip(), str(self.addition.currentText()).strip()]
             if self.radio_column.isChecked():
-                # create address search line: address+housenumber-extension or letter+city
+                # create address search line: address+housenumber+addition+city
                 current_city = ""
-                fields = [str(self.address.currentText()).strip(), str(self.housenumber.currentText()).strip(),str(self.city.currentText()).strip()]
+                fields = [str(self.address.currentText()).strip(), str(self.housenumber.currentText()).strip(), str(self.addition.currentText()).strip(), str(self.city.currentText()).strip()]
             for x in range(0, len(fields)):
                 if fields[x] == "----":
                     fields[x] = ""
 
             # print csvname + "," + "," + shapefilename
-            message = pdokbaggeocoder(self.iface, csvname, shapefilename, notfoundfile, fields, 1, current_city, start_time)
+            housenumber_key = str(self.housenumber.currentText()).strip()
+            if housenumber_key == "----":
+                housenumber_key = ""
+            addition_key = str(self.addition.currentText()).strip()
+            if addition_key == "----":
+                addition_key = ""
+            message = pdokbaggeocoder(self.iface, csvname, shapefilename, notfoundfile, fields, 1, current_city, start_time, housenumber_key, addition_key)
             if message:
                 QMessageBox.critical(self.iface.mainWindow(), "Geocode BAG", message)
