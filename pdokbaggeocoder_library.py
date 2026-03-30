@@ -300,17 +300,22 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                             straat_lower = res_straatnaam.lower()
                             if addr_lower.startswith(straat_lower) and (len(addr_lower) == len(straat_lower) or addr_lower[len(straat_lower)] == ' '):
                                 any_validated = True
-                                # Extract and normalize number part from CSV address
-                                csv_number_part = csv_address[len(res_straatnaam):].strip().replace('-', '').replace(' ', '').lower()
-                                # Build normalized number from API result
-                                res_number_part = (res_huisnummer + res_huisletter + res_toevoeging).lower()
-                                if csv_number_part == res_number_part:
-                                    # Exact match (e.g. "29" == "29" or "29a" == "29a")
+                                # Extract number part from CSV address (e.g. "5-99", "29a", "10H")
+                                csv_full_number = csv_address[len(res_straatnaam):].strip().lower()
+                                # Split into huisnummer and toevoeging using regex
+                                # Matches: digits, then optional letter or -/space + rest
+                                nr_match = re.match(r'^(\d+)\s*[-\s]?\s*(.*)$', csv_full_number)
+                                csv_nr = nr_match.group(1) if nr_match else ""
+                                csv_toev = nr_match.group(2).replace('-', '').replace(' ', '') if nr_match else ""
+                                # Build expected toevoeging from API result
+                                res_toev = (res_huisletter + res_toevoeging).lower()
+                                if csv_nr == res_huisnummer and csv_toev == res_toev:
+                                    # Exact match (e.g. "29"+"" == "29"+"" or "29"+"a" == "29"+"a")
                                     best_result = result
                                     break
                                 # Remember huisnummer-only match as fallback
                                 if not huisnummer_match and not res_huisletter and not res_toevoeging:
-                                    if csv_number_part.startswith(res_huisnummer.lower()):
+                                    if csv_nr == res_huisnummer:
                                         huisnummer_match = result
                         else:
                             # No validation possible (e.g. postcode): accept first result
