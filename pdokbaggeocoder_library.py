@@ -148,7 +148,7 @@ def pdokbaggeocoder_status_message(qgis, message):
 # --------------------------------------------------------------
 
 
-def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, current_city, start_time, housenumber_key="", addition_key=""):
+def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, current_city, start_time, housenumber_key="", addition_key="", address_key=""):
     if (not csvname) or (len(csvname) <= 0):
         return "No CSV address file given"
     # Read the CSV file header
@@ -179,6 +179,7 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
 
     housenumber_idx = -1
     addition_idx = -1
+    address_idx = -1
     for x in range(0, len(header)):
         for y in range(0, len(keys)):
             if header[x] == keys[y]:
@@ -187,6 +188,8 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
             housenumber_idx = x
         if addition_key and header[x] == addition_key:
             addition_idx = x
+        if address_key and header[x] == address_key:
+            address_idx = x
 
         fieldname = header[x].strip()
         fields.append(QgsField(fieldname[0:9], QVariant.String))
@@ -246,44 +249,80 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                 response = urllib.request.urlopen(url).read()
                 results = json.loads(response)
                 if len(results["response"]["docs"]) > 0:
-                    # Get housenumber and addition values from CSV row for validation
+                    # Get CSV values for validation
                     csv_huisnummer = ""
                     csv_addition = ""
+                    csv_address = ""
                     if housenumber_idx >= 0 and housenumber_idx < len(row):
                         csv_huisnummer = row[housenumber_idx].strip()
                     if addition_idx >= 0 and addition_idx < len(row):
                         csv_addition = row[addition_idx].strip().lstrip('-')
+                    if address_idx >= 0 and address_idx < len(row):
+                        csv_address = row[address_idx].strip()
 
                     # Find best matching result with priority:
-                    # 1. Exact match (huisnummer + toevoeging)
-                    # 2. Huisnummer match without toevoeging
-                    # 3. First result (highest score)
+                    # 1. Exact match (straat + huisnummer + toevoeging)
+                    # 2. Straat + huisnummer without toevoeging (fallback)
+                    # 3. First result (only if no validation possible)
+                    # Results without matching straatnaam/huisnummer are skipped
                     best_result = None
                     huisnummer_match = None
+                    first_result = None
+                    any_validated = False
                     for result in results["response"]["docs"]:
-                        if not best_result:
-                            best_result = result
+                        if not first_result:
+                            first_result = result
+                        res_straatnaam = result.get("straatnaam", "")
+                        res_huisnummer = str(result.get("huisnummer", ""))
+                        res_huisletter = result.get("huisletter", "") or ""
+                        res_toevoeging = result.get("huisnummertoevoeging", "") or ""
+
                         if csv_huisnummer:
-                            res_huisnummer = str(result.get("huisnummer", ""))
-                            res_huisletter = result.get("huisletter", "")
-                            res_toevoeging = result.get("huisnummertoevoeging", "")
-                            if res_huisnummer == csv_huisnummer:
-                                if csv_addition:
-                                    # Exact match with addition
-                                    if csv_addition.lower() == str(res_huisletter).lower() or csv_addition.lower() == str(res_toevoeging).lower():
-                                        best_result = result
-                                        break
-                                    # Remember huisnummer-only match as fallback
-                                    if not huisnummer_match and not res_huisletter and not res_toevoeging:
+                            # Separate columns mode: validate straatnaam + huisnummer
+                            if csv_address and res_straatnaam.lower() != csv_address.lower():
+                                continue
+                            if res_huisnummer != csv_huisnummer:
+                                continue
+                            any_validated = True
+                            if csv_addition:
+                                if csv_addition.lower() == str(res_huisletter).lower() or csv_addition.lower() == str(res_toevoeging).lower():
+                                    best_result = result
+                                    break
+                                if not huisnummer_match and not res_huisletter and not res_toevoeging:
+                                    huisnummer_match = result
+                            else:
+                                if not res_huisletter and not res_toevoeging:
+                                    best_result = result
+                                    break
+                        elif csv_address and res_straatnaam:
+                            # Combined address mode: extract number part and validate
+                            addr_lower = csv_address.lower()
+                            straat_lower = res_straatnaam.lower()
+                            if addr_lower.startswith(straat_lower) and (len(addr_lower) == len(straat_lower) or addr_lower[len(straat_lower)] == ' '):
+                                any_validated = True
+                                # Extract and normalize number part from CSV address
+                                csv_number_part = csv_address[len(res_straatnaam):].strip().replace('-', '').replace(' ', '').lower()
+                                # Build normalized number from API result
+                                res_number_part = (res_huisnummer + res_huisletter + res_toevoeging).lower()
+                                if csv_number_part == res_number_part:
+                                    # Exact match (e.g. "29" == "29" or "29a" == "29a")
+                                    best_result = result
+                                    break
+                                # Remember huisnummer-only match as fallback
+                                if not huisnummer_match and not res_huisletter and not res_toevoeging:
+                                    if csv_number_part.startswith(res_huisnummer.lower()):
                                         huisnummer_match = result
-                                else:
-                                    # No addition specified: prefer result without letter/toevoeging
-                                    if not res_huisletter and not res_toevoeging:
-                                        best_result = result
-                                        break
+                        else:
+                            # No validation possible (e.g. postcode): accept first result
+                            best_result = first_result
+                            break
+
                     # Use huisnummer-only fallback if no exact match was found
                     if huisnummer_match and best_result != huisnummer_match:
                         best_result = huisnummer_match
+                    # If no result passed validation but format was unrecognized, use first result
+                    if not best_result and not any_validated and first_result:
+                        best_result = first_result
 
                     if best_result:
                         xy = re.findall(r'\d+\.*\d*', best_result["centroide_rd"])

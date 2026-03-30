@@ -267,12 +267,15 @@ class pdokbaggeocoder_dialog(QDialog, Ui_pdokbaggeocoder_form):
                     fields[x] = ""
 
             # print csvname + "," + "," + shapefilename
+            address_key = str(self.address.currentText()).strip()
+            if address_key == "----":
+                address_key = ""
             housenumber_key = str(self.housenumber.currentText()).strip()
             if housenumber_key == "----":
                 housenumber_key = ""
             addition_key = str(self.addition.currentText()).strip()
             if addition_key == "----":
                 addition_key = ""
-            message = pdokbaggeocoder(self.iface, csvname, shapefilename, notfoundfile, fields, 1, current_city, start_time, housenumber_key, addition_key)
+            message = pdokbaggeocoder(self.iface, csvname, shapefilename, notfoundfile, fields, 1, current_city, start_time, housenumber_key, addition_key, address_key)
             if message:
                 QMessageBox.critical(self.iface.mainWindow(), "Geocode BAG", message)
