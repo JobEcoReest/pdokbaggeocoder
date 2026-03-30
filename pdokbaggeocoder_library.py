@@ -279,34 +279,35 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
 
                         if csv_huisnummer:
                             # Separate columns mode: validate huisnummer (required)
-                            # and straatnaam (preferred but not required, could be a postcode)
+                            # Straatnaam must match unless address is a postcode or empty
                             if res_huisnummer != csv_huisnummer:
                                 continue
                             any_validated = True
-                            street_matches = not csv_address or res_straatnaam.lower() == csv_address.lower()
+                            is_postcode = bool(csv_address and re.match(r'^\d{4}\s?[A-Za-z]{2}$', csv_address))
+                            if csv_address and not is_postcode:
+                                # Address looks like a street name: require match
+                                if res_straatnaam.lower() != csv_address.lower():
+                                    continue
+                            elif is_postcode:
+                                # Postcode as address: skip street validation
+                                pass
+                            elif address_idx >= 0:
+                                # Address column selected but value is empty: can't validate
+                                continue
                             if csv_addition:
                                 # Normalize csv_addition: remove dashes/spaces for comparison
                                 csv_add_norm = csv_addition.replace('-', '').replace(' ', '').lower()
                                 # Build all possible combinations from API result
                                 res_combined = (str(res_huisletter) + str(res_toevoeging)).replace('-', '').replace(' ', '').lower()
                                 if csv_add_norm == str(res_huisletter).lower() or csv_add_norm == str(res_toevoeging).lower() or csv_add_norm == res_combined:
-                                    if street_matches:
-                                        best_result = result
-                                        break
-                                    elif not best_result:
-                                        best_result = result
+                                    best_result = result
+                                    break
                                 if not huisnummer_match and not res_huisletter and not res_toevoeging:
-                                    if street_matches:
-                                        huisnummer_match = result
-                                    elif not huisnummer_match:
-                                        huisnummer_match = result
+                                    huisnummer_match = result
                             else:
                                 if not res_huisletter and not res_toevoeging:
-                                    if street_matches:
-                                        best_result = result
-                                        break
-                                    elif not best_result:
-                                        best_result = result
+                                    best_result = result
+                                    break
                         elif csv_address and res_straatnaam:
                             # Combined address mode: extract number part and validate
                             addr_lower = csv_address.lower()
@@ -338,9 +339,11 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                     # Use huisnummer-only fallback if no exact match was found
                     if huisnummer_match and best_result != huisnummer_match:
                         best_result = huisnummer_match
-                    # If no result passed validation but format was unrecognized, use first result
+                    # If no result passed validation, only accept first result
+                    # if the address looks like a postcode (not a non-existent street name)
                     if not best_result and not any_validated and first_result:
-                        best_result = first_result
+                        if not csv_address or re.match(r'^\d{4}\s?[A-Za-z]{2}', csv_address):
+                            best_result = first_result
 
                     if best_result:
                         xy = re.findall(r'\d+\.*\d*', best_result["centroide_rd"])
