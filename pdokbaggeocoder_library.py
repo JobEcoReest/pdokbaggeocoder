@@ -243,7 +243,7 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
             notwriter.writerow(row)
         else:
             url_geocoder = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?q='
-            url = '{}{}{}&rows=10&bq=type:adres'.format(url_geocoder,total_address, selected_city)
+            url = '{}{}{}&rows=100&bq=type:adres'.format(url_geocoder,total_address, selected_city)
             url_list.append(url)
             try:
                 response = urllib.request.urlopen(url).read()
@@ -278,22 +278,35 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                         res_toevoeging = result.get("huisnummertoevoeging", "") or ""
 
                         if csv_huisnummer:
-                            # Separate columns mode: validate straatnaam + huisnummer
-                            if csv_address and res_straatnaam.lower() != csv_address.lower():
-                                continue
+                            # Separate columns mode: validate huisnummer (required)
+                            # and straatnaam (preferred but not required, could be a postcode)
                             if res_huisnummer != csv_huisnummer:
                                 continue
                             any_validated = True
+                            street_matches = not csv_address or res_straatnaam.lower() == csv_address.lower()
                             if csv_addition:
-                                if csv_addition.lower() == str(res_huisletter).lower() or csv_addition.lower() == str(res_toevoeging).lower():
-                                    best_result = result
-                                    break
+                                # Normalize csv_addition: remove dashes/spaces for comparison
+                                csv_add_norm = csv_addition.replace('-', '').replace(' ', '').lower()
+                                # Build all possible combinations from API result
+                                res_combined = (str(res_huisletter) + str(res_toevoeging)).replace('-', '').replace(' ', '').lower()
+                                if csv_add_norm == str(res_huisletter).lower() or csv_add_norm == str(res_toevoeging).lower() or csv_add_norm == res_combined:
+                                    if street_matches:
+                                        best_result = result
+                                        break
+                                    elif not best_result:
+                                        best_result = result
                                 if not huisnummer_match and not res_huisletter and not res_toevoeging:
-                                    huisnummer_match = result
+                                    if street_matches:
+                                        huisnummer_match = result
+                                    elif not huisnummer_match:
+                                        huisnummer_match = result
                             else:
                                 if not res_huisletter and not res_toevoeging:
-                                    best_result = result
-                                    break
+                                    if street_matches:
+                                        best_result = result
+                                        break
+                                    elif not best_result:
+                                        best_result = result
                         elif csv_address and res_straatnaam:
                             # Combined address mode: extract number part and validate
                             addr_lower = csv_address.lower()
