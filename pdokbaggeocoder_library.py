@@ -227,7 +227,7 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
         for x in indices:
             if x < len(row):
                 value = row[x].strip()
-                value = row[x].replace('-', ' ')
+                value = value.replace('-', ' ')
                 new_string = urllib.parse.quote(value)
 
                 if len(new_string) > 0:
@@ -252,7 +252,7 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                     if housenumber_idx >= 0 and housenumber_idx < len(row):
                         csv_huisnummer = row[housenumber_idx].strip()
                     if addition_idx >= 0 and addition_idx < len(row):
-                        csv_addition = row[addition_idx].strip()
+                        csv_addition = row[addition_idx].strip().lstrip('-')
 
                     # Find best matching result with priority:
                     # 1. Exact match (huisnummer + toevoeging)
