@@ -86,8 +86,9 @@ class pdokbaggeocoder_dialog(QDialog, Ui_pdokbaggeocoder_form):
         if isinstance(newname, tuple):
             newname = newname[0]
             try:
-                infile = open(newname, encoding="latin-1")
+                infile = open(newname, encoding="utf-8-sig")
                 dialect = csv.Sniffer().sniff(infile.readline(), [',', ';', ';', '|'])
+                dialect.doublequote = True
             except:
                 QMessageBox.critical(self.iface.mainWindow(), "Geocoderen met PDOK BAG Geocoder", \
                     newname + " inaccessible or in unrecognized CSV format: " + str(sys.exc_info()[1]))
@@ -276,6 +277,11 @@ class pdokbaggeocoder_dialog(QDialog, Ui_pdokbaggeocoder_form):
             addition_key = str(self.addition.currentText()).strip()
             if addition_key == "----":
                 addition_key = ""
-            message = pdokbaggeocoder(self.iface, csvname, shapefilename, notfoundfile, fields, 1, current_city, start_time, housenumber_key, addition_key, address_key)
+            city_key = ""
+            if self.radio_column.isChecked():
+                city_key = str(self.city.currentText()).strip()
+                if city_key == "----":
+                    city_key = ""
+            message = pdokbaggeocoder(self.iface, csvname, shapefilename, notfoundfile, fields, 1, current_city, start_time, housenumber_key, addition_key, address_key, city_key)
             if message:
                 QMessageBox.critical(self.iface.mainWindow(), "Geocode BAG", message)

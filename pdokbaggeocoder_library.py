@@ -31,6 +31,7 @@ import os.path
 import urllib.request, urllib.parse, urllib.error
 import json
 import re
+import unicodedata
 #from re import sub
 
 from qgis.PyQt.QtCore import *
@@ -43,6 +44,46 @@ import os
 # --------------------------------------------------------
 #    BAG geocoder Functions
 # --------------------------------------------------------
+
+
+def strip_accents(text):
+    """Remove diacritical marks (e.g. ú→u, â→a, ô→o) for comparison."""
+    return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
+
+
+def levenshtein(s1, s2):
+    """Calculate Levenshtein edit distance between two strings."""
+    if len(s1) < len(s2):
+        return levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            cost = 0 if c1 == c2 else 1
+            curr_row.append(min(curr_row[j] + 1, prev_row[j + 1] + 1, prev_row[j] + cost))
+        prev_row = curr_row
+    return prev_row[-1]
+
+
+def streets_match(csv_street, api_street, max_ratio=0.15):
+    """Check if two street names match, allowing small typos.
+
+    First tries exact match after accent stripping.
+    If that fails, allows fuzzy match: edit distance must be at most
+    max_ratio * length of the longer string (default 15%), with a
+    minimum of 1 and maximum of 3 edits allowed.
+    """
+    a = strip_accents(csv_street).lower()
+    b = strip_accents(api_street).lower()
+    if a == b:
+        return True
+    max_len = max(len(a), len(b))
+    if max_len == 0:
+        return True
+    allowed = min(3, max(1, int(max_len * max_ratio)))
+    return levenshtein(a, b) <= allowed
 
 
 def pdokbaggeocoder_find_layer(layer_name):
@@ -148,17 +189,18 @@ def pdokbaggeocoder_status_message(qgis, message):
 # --------------------------------------------------------------
 
 
-def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, current_city, start_time, housenumber_key="", addition_key="", address_key=""):
+def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, current_city, start_time, housenumber_key="", addition_key="", address_key="", city_key=""):
     if (not csvname) or (len(csvname) <= 0):
         return "No CSV address file given"
     # Read the CSV file header
     try:
-        infile = open(csvname, 'r')
+        infile = open(csvname, 'r', encoding='utf-8-sig')
     except EnvironmentError:
         return "Fout bij het openen van " + csvname
 
     try:
         dialect = csv.Sniffer().sniff(infile.readline(), [',', ';', ';', '|'],)
+        dialect.doublequote = True
     except:
         return "Fout bij het openen van " + str(csvname) + ": " + str(sys.exc_info()[1]) + "Controleer of de scheidingstekens consistent zijn gekozen en deze niet in de velden voorkomen."
 
@@ -180,6 +222,7 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
     housenumber_idx = -1
     addition_idx = -1
     address_idx = -1
+    city_idx = -1
     for x in range(0, len(header)):
         for y in range(0, len(keys)):
             if header[x] == keys[y]:
@@ -190,6 +233,8 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
             addition_idx = x
         if address_key and header[x] == address_key:
             address_idx = x
+        if city_key and header[x] == city_key:
+            city_idx = x
 
         fieldname = header[x].strip()
         fields.append(QgsField(fieldname[0:9], QVariant.String))
@@ -224,6 +269,9 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
     url_list = []
     notfound_list = []
     for row in reader:
+        # Fix malformed CSV where entire data row is wrapped in quotes
+        if len(row) == 1 and len(header) > 1:
+            row = next(csv.reader([row[0]], dialect))
         recordcount += 1
         pdokbaggeocoder_status_message(qgis, "Geocoding " + str(recordcount) + " (" + str(notfoundcount) + " not found)")
         total_address = ""
@@ -253,12 +301,17 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                     csv_huisnummer = ""
                     csv_addition = ""
                     csv_address = ""
+                    csv_city = ""
                     if housenumber_idx >= 0 and housenumber_idx < len(row):
                         csv_huisnummer = row[housenumber_idx].strip()
                     if addition_idx >= 0 and addition_idx < len(row):
                         csv_addition = row[addition_idx].strip().lstrip('-')
                     if address_idx >= 0 and address_idx < len(row):
                         csv_address = row[address_idx].strip()
+                    if city_idx >= 0 and city_idx < len(row):
+                        csv_city = row[city_idx].strip()
+                    elif current_city:
+                        csv_city = current_city
 
                     # Find best matching result with priority:
                     # 1. Exact match (straat + huisnummer + toevoeging)
@@ -276,6 +329,16 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                         res_huisnummer = str(result.get("huisnummer", ""))
                         res_huisletter = result.get("huisletter", "") or ""
                         res_toevoeging = result.get("huisnummertoevoeging", "") or ""
+                        res_woonplaats = result.get("woonplaatsnaam", "")
+
+                        # Validate woonplaats (city) if available
+                        # CSV may contain "NES NOARDEAST-FRYSLAN" while API returns "Nes",
+                        # so check if either value starts with the other.
+                        if csv_city and res_woonplaats:
+                            csv_city_norm = strip_accents(csv_city).lower()
+                            res_wpl_norm = strip_accents(res_woonplaats).lower()
+                            if csv_city_norm != res_wpl_norm and not csv_city_norm.startswith(res_wpl_norm + " ") and not res_wpl_norm.startswith(csv_city_norm + " ") and csv_city_norm != res_wpl_norm.split()[0]:
+                                continue
 
                         if csv_huisnummer:
                             # Separate columns mode: validate huisnummer (required)
@@ -285,8 +348,8 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                             any_validated = True
                             is_postcode = bool(csv_address and re.match(r'^\d{4}\s?[A-Za-z]{2}$', csv_address))
                             if csv_address and not is_postcode:
-                                # Address looks like a street name: require match
-                                if res_straatnaam.lower() != csv_address.lower():
+                                # Address looks like a street name: require match (fuzzy)
+                                if not streets_match(csv_address, res_straatnaam):
                                     continue
                             elif is_postcode:
                                 # Postcode as address: skip street validation
@@ -310,12 +373,25 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                                     break
                         elif csv_address and res_straatnaam:
                             # Combined address mode: extract number part and validate
-                            addr_lower = csv_address.lower()
-                            straat_lower = res_straatnaam.lower()
-                            if addr_lower.startswith(straat_lower) and (len(addr_lower) == len(straat_lower) or addr_lower[len(straat_lower)] == ' '):
+                            addr_lower = strip_accents(csv_address).lower()
+                            straat_lower = strip_accents(res_straatnaam).lower()
+                            # Try exact prefix match first
+                            prefix_match = addr_lower.startswith(straat_lower) and (len(addr_lower) == len(straat_lower) or addr_lower[len(straat_lower)] == ' ')
+                            # If no exact prefix, try fuzzy match on the street part
+                            if not prefix_match:
+                                # Split CSV address: assume street name has same word count as API street
+                                api_words = straat_lower.split()
+                                csv_words = addr_lower.split()
+                                if len(csv_words) >= len(api_words):
+                                    csv_street_part = ' '.join(csv_words[:len(api_words)])
+                                    prefix_match = streets_match(csv_street_part, straat_lower)
+                            if prefix_match:
                                 any_validated = True
                                 # Extract number part from CSV address (e.g. "5-99", "29a", "10H")
-                                csv_full_number = csv_address[len(res_straatnaam):].strip().lower()
+                                # Use word count of API street to split correctly (handles fuzzy length differences)
+                                api_word_count = len(straat_lower.split())
+                                csv_remainder_words = addr_lower.split()[api_word_count:]
+                                csv_full_number = ' '.join(csv_remainder_words)
                                 # Split into huisnummer and toevoeging using regex
                                 # Matches: digits, then optional letter or -/space + rest
                                 nr_match = re.match(r'^(\d+)\s*[-\s]?\s*(.*)$', csv_full_number)
@@ -344,6 +420,33 @@ def pdokbaggeocoder(qgis, csvname, shapefilename, notfoundfile, keys, addlayer, 
                     if not best_result and not any_validated and first_result:
                         if not csv_address or re.match(r'^\d{4}\s?[A-Za-z]{2}', csv_address):
                             best_result = first_result
+
+                    # Deduplication: when multiple BAG objects exist for the same address
+                    # (common after municipal mergers), prefer the one with the original
+                    # municipality's nummeraanduiding_id, as newly created IDs often have
+                    # less accurate coordinates.
+                    if best_result:
+                        best_nid = best_result.get("nummeraanduiding_id", "")
+                        best_gemeentecode = best_result.get("gemeentecode", "")
+                        best_woonplaats = best_result.get("woonplaatsnaam", "")
+                        if best_nid and best_gemeentecode and best_nid.startswith(best_gemeentecode):
+                            # Current best has the new municipality prefix - check for alternative
+                            best_straat = best_result.get("straatnaam", "")
+                            best_nr = str(best_result.get("huisnummer", ""))
+                            best_letter = best_result.get("huisletter", "") or ""
+                            best_toev = best_result.get("huisnummertoevoeging", "") or ""
+                            for alt in results["response"]["docs"]:
+                                alt_nid = alt.get("nummeraanduiding_id", "")
+                                if alt_nid == best_nid:
+                                    continue
+                                if (alt.get("straatnaam", "") == best_straat and
+                                    str(alt.get("huisnummer", "")) == best_nr and
+                                    (alt.get("huisletter", "") or "") == best_letter and
+                                    (alt.get("huisnummertoevoeging", "") or "") == best_toev and
+                                    alt.get("woonplaatsnaam", "") == best_woonplaats and
+                                    not alt_nid.startswith(best_gemeentecode)):
+                                    best_result = alt
+                                    break
 
                     if best_result:
                         xy = re.findall(r'\d+\.*\d*', best_result["centroide_rd"])
